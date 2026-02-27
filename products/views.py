@@ -1,10 +1,10 @@
 from bson import ObjectId
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .db import products_col, bookmarks_col
+from .db import products_col, bookmarks_col, get_db
 from .serializers import ProductSerializer, SearchRequestSerializer
 from .ai_search import search_products
 
@@ -132,6 +132,36 @@ def toggle_bookmark(request, product_id):
     else:
         col.insert_one({'user_id': user_id, 'product_id': product_id})
         return Response({'bookmarked': True}, status=status.HTTP_201_CREATED)
+
+
+# ── Brands list ──────────────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def brands_list(request):
+    """GET /api/products/brands/ — distinct brand names from the products collection."""
+    col = products_col()
+    brands = col.distinct('brand')
+    return Response(sorted(brands))
+
+
+# ── Curated edits ─────────────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def edits_list(request):
+    """GET /api/products/edits/ — curated editorial collections."""
+    col = get_db()['edits']
+    docs = list(col.find({}, {'_id': 0}))
+    return Response(docs)
+
+
+# ── Search prompt suggestions ─────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def prompts_list(request):
+    """GET /api/products/prompts/ — rotating search placeholder prompts."""
+    col = get_db()['prompts']
+    docs = list(col.find({}, {'_id': 0, 'text': 1}))
+    return Response([d['text'] for d in docs])
 
 
 # ── User's bookmarks ──────────────────────────────────────────────────
