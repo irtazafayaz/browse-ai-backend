@@ -106,7 +106,11 @@ def product_search(request):
     user_id = request.user.id if request.user.is_authenticated else None
 
     result = search_products(query, history, user_id)
-    return Response(result)
+    return Response({
+        'products': ProductSerializer(result['products'], many=True).data,
+        'displayText': result['displayText'],
+        'suggestedFilters': result['suggestedFilters'],
+    })
 
 
 # ── Toggle bookmark ───────────────────────────────────────────────────
