@@ -1,39 +1,45 @@
-from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from rest_framework import serializers
-from rest_framework_simplejwt.tokens import RefreshToken
 
-User = get_user_model()
+from .jwt_auth import RefreshToken
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, validators=[validate_password])
+class RegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    first_name = serializers.CharField(max_length=150, default='')
+    last_name = serializers.CharField(max_length=150, default='')
+    password = serializers.CharField(write_only=True)
     password2 = serializers.CharField(write_only=True, label='Confirm password')
 
-    class Meta:
-        model = User
-        fields = ('email', 'first_name', 'last_name', 'password', 'password2')
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(list(e.messages))
+        return value
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({'password': 'Passwords do not match.'})
         return attrs
 
-    def create(self, validated_data):
-        validated_data.pop('password2')
-        user = User.objects.create_user(**validated_data)
-        return user
 
+class UserSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    avatar_url = serializers.URLField(allow_blank=True, required=False)
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'avatar_url')
-        read_only_fields = ('id', 'email')
+    def update(self, instance, validated_data):
+        instance.first_name = validated_data.get('first_name', instance.first_name)
+        instance.last_name = validated_data.get('last_name', instance.last_name)
+        instance.save(update_fields=['first_name', 'last_name'])
+        return instance
 
 
 class TokenPairSerializer(serializers.Serializer):
-    """Returns access + refresh JWT pair alongside user info."""
     access = serializers.CharField(read_only=True)
     refresh = serializers.CharField(read_only=True)
     user = UserSerializer(read_only=True)
@@ -49,5 +55,4 @@ class TokenPairSerializer(serializers.Serializer):
 
 
 class GoogleAuthSerializer(serializers.Serializer):
-    """Accepts a Google id_token from the frontend."""
     id_token = serializers.CharField()

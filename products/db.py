@@ -1,25 +1,4 @@
-"""
-Lightweight MongoDB connection helper.
-Returns the browse_ai database client.
-All product/bookmark data lives in MongoDB collections.
-Django's ORM (SQLite) is only used for auth/admin/sessions.
-"""
-from django.conf import settings
-from pymongo import MongoClient
+# Re-export from core.db for backwards compatibility within the products app.
+from core.db import get_db, products_col, bookmarks_col, edits_col, prompts_col
 
-_client = None
-
-
-def get_db():
-    global _client
-    if _client is None:
-        _client = MongoClient(settings.MONGO_URI)
-    return _client[settings.MONGO_DB_NAME]
-
-
-def products_col():
-    return get_db()['products']
-
-
-def bookmarks_col():
-    return get_db()['bookmarks']
+__all__ = ['get_db', 'products_col', 'bookmarks_col', 'edits_col', 'prompts_col']

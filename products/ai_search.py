@@ -6,21 +6,22 @@ Falls back to simple keyword matching if no API key is set.
 """
 import json
 import re
+
 from django.conf import settings
+
 from .db import products_col, bookmarks_col
+from .utils import doc_to_product
 
 
 def _extract_filters_with_ai(query: str, history: list) -> tuple[list[str], str]:
     """
     Ask Claude to extract filter tags from the user's query.
     Returns (filter_tags, display_text).
-    Falls back to splitting query words if no API key configured.
+    Falls back to keyword splitting if no API key is configured or on error.
     """
     if not settings.ANTHROPIC_API_KEY:
-        # Simple fallback — split query into words as filters
         words = [w.lower().strip('.,!?') for w in query.split() if len(w) > 2]
-        display = f'Found results for "{query}"'
-        return words, display
+        return words, f'Found results for "{query}"'
 
     import anthropic
 
@@ -35,31 +36,28 @@ def _extract_filters_with_ai(query: str, history: list) -> tuple[list[str], str]
         '{"filters": ["tag1", "tag2"], "displayText": "..."}'
     )
 
-    # Build conversation history
     messages = []
-    for msg in history[-6:]:  # last 6 messages for context
+    for msg in history[-6:]:
         role = 'user' if msg.get('sender') == 'user' else 'assistant'
         messages.append({'role': role, 'content': msg.get('text', '')})
-
     messages.append({'role': 'user', 'content': query})
 
-    response = client.messages.create(
-        model='claude-haiku-4-5-20251001',
-        max_tokens=256,
-        system=system_prompt,
-        messages=messages,
-    )
+    try:
+        response = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=256,
+            system=system_prompt,
+            messages=messages,
+        )
+        raw = response.content[0].text.strip()
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group())
+            return data.get('filters', []), data.get('displayText', f'Results for "{query}"')
+    except (anthropic.APIError, json.JSONDecodeError, IndexError):
+        pass
 
-    raw = response.content[0].text.strip()
-
-    # Extract JSON even if Claude wraps it in markdown
-    json_match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if json_match:
-        data = json.loads(json_match.group())
-        return data.get('filters', []), data.get('displayText', f'Results for "{query}"')
-
-    # Parsing failed — fall back
-    words = [w.lower() for w in query.split() if len(w) > 2]
+    words = [w.lower().strip('.,!?') for w in query.split() if len(w) > 2]
     return words, f'Results for "{query}"'
 
 
@@ -73,7 +71,6 @@ def search_products(query: str, history: list, user_id=None) -> dict:
     col = products_col()
 
     if filters:
-        # Match products whose tags array contains any of the filter words
         mongo_filter = {
             'tags': {
                 '$elemMatch': {
@@ -86,28 +83,12 @@ def search_products(query: str, history: list, user_id=None) -> dict:
     else:
         docs = list(col.find())
 
-    # Attach isBookmarked flag if user is logged in
     bookmarked_ids = set()
     if user_id:
-        bmarks = bookmarks_col().find({'user_id': str(user_id)})
-        bookmarked_ids = {b['product_id'] for b in bmarks}
-
-    products = []
-    for doc in docs:
-        product_id = str(doc['_id'])
-        products.append({
-            '_id_str': doc.get('id', product_id),
-            'brand': doc.get('brand', ''),
-            'name': doc.get('name', ''),
-            'imageUrl': doc.get('imageUrl', ''),
-            'price': doc.get('price', 0),
-            'originalPrice': doc.get('originalPrice'),
-            'tags': doc.get('tags', []),
-            'isBookmarked': doc.get('id', product_id) in bookmarked_ids,
-        })
+        bookmarked_ids = {b['product_id'] for b in bookmarks_col().find({'user_id': str(user_id)})}
 
     return {
-        'products': products,
+        'products': [doc_to_product(doc, bookmarked_ids) for doc in docs],
         'displayText': display_text,
         'suggestedFilters': filters,
     }

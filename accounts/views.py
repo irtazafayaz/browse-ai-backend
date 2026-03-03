@@ -1,27 +1,33 @@
+import logging
+
 from django.conf import settings
-from django.contrib.auth import get_user_model, authenticate
+from django.contrib.auth import authenticate
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
+from .models import User
+from .jwt_auth import RefreshToken
 from .serializers import (
     RegisterSerializer, UserSerializer,
     TokenPairSerializer, GoogleAuthSerializer,
 )
 
-User = get_user_model()
-
 
 # ── Register ──────────────────────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
 def register(request):
+    request.throttle_scope = 'auth'
     """
     POST /api/auth/register/
     Body: { email, first_name, last_name, password, password2 }
@@ -29,16 +35,30 @@ def register(request):
     """
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
+        logger.debug("Register validation failed: %s", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    user = serializer.save()
+    data = serializer.validated_data
+    if User.get_by_email(data['email']):
+        logger.info("Register rejected — email already exists: %s", data['email'])
+        return Response({'email': 'A user with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.create(
+        email=data['email'],
+        password=data['password'],
+        first_name=data.get('first_name', ''),
+        last_name=data.get('last_name', ''),
+    )
+    logger.info("New user registered: %s (id=%s)", user.email, user.id)
     return Response(TokenPairSerializer.for_user(user), status=status.HTTP_201_CREATED)
 
 
 # ── Login ─────────────────────────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
 def login(request):
+    request.throttle_scope = 'auth'
     """
     POST /api/auth/login/
     Body: { email, password }
@@ -55,11 +75,13 @@ def login(request):
 
     user = authenticate(request, email=email, password=password)
     if user is None:
+        logger.info("Failed login attempt for email: %s", email)
         return Response(
             {'detail': 'Invalid credentials.'},
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    logger.info("User logged in: %s (id=%s)", user.email, user.id)
     return Response(TokenPairSerializer.for_user(user))
 
 
@@ -70,7 +92,7 @@ def logout(request):
     """
     POST /api/auth/logout/
     Body: { refresh }
-    Blacklists the refresh token so it can't be reused.
+    Blacklists the refresh token in MongoDB so it can't be reused.
     """
     refresh_token = request.data.get('refresh')
     if not refresh_token:
@@ -80,8 +102,10 @@ def logout(request):
         token = RefreshToken(refresh_token)
         token.blacklist()
     except TokenError as e:
+        logger.warning("Logout failed — invalid token: %s", e)
         return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    logger.info("User logged out (token blacklisted)")
     return Response({'detail': 'Logged out successfully.'})
 
 
@@ -99,8 +123,8 @@ def me(request):
     serializer = UserSerializer(request.user, data=request.data, partial=True)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    serializer.save()
-    return Response(serializer.data)
+    serializer.update(request.user, serializer.validated_data)
+    return Response(UserSerializer(request.user).data)
 
 
 # ── Google OAuth ──────────────────────────────────────────────────────
@@ -110,16 +134,7 @@ def google_auth(request):
     """
     POST /api/auth/google/
     Body: { id_token: "<Google id_token from frontend>" }
-
-    Verifies the Google id_token, then:
-    - If user exists → login
-    - If user doesn't exist → create account + login
     Returns: { access, refresh, user }
-
-    Frontend flow (Next.js + @react-oauth/google):
-    1. User clicks "Sign in with Google" → Google returns id_token
-    2. Frontend sends id_token to this endpoint
-    3. Backend verifies + returns JWT pair
     """
     serializer = GoogleAuthSerializer(data=request.data)
     if not serializer.is_valid():
@@ -134,7 +149,6 @@ def google_auth(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    # Verify token with Google
     try:
         idinfo = google_id_token.verify_oauth2_token(
             raw_token,
@@ -153,8 +167,7 @@ def google_auth(request):
     if not email:
         return Response({'detail': 'Google account has no email.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Get or create user
-    user, created = User.objects.get_or_create(
+    user, created = User.get_or_create(
         email=email,
         defaults={
             'first_name': first_name,
@@ -165,7 +178,6 @@ def google_auth(request):
         },
     )
 
-    # Update google_id / avatar if this is an existing user logging in via Google
     if not created:
         updated = False
         if not user.google_id:
@@ -181,3 +193,29 @@ def google_auth(request):
         TokenPairSerializer.for_user(user),
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
+
+
+# ── Token refresh ─────────────────────────────────────────────────────
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def token_refresh(request):
+    """
+    POST /api/auth/token/refresh/
+    Body: { refresh }
+    Returns: { access, refresh } using our MongoDB-backed RefreshToken.
+    """
+    raw = request.data.get('refresh')
+    if not raw:
+        return Response({'detail': 'Refresh token required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        token = RefreshToken(raw)
+        access = str(token.access_token)
+        # Blacklist the old token and issue a new one (rotation)
+        token.blacklist()
+        new_refresh = RefreshToken.for_user_id(str(token['user_id']))
+        logger.debug("Token refreshed for user_id: %s", token['user_id'])
+        return Response({'access': access, 'refresh': str(new_refresh)})
+    except (TokenError, InvalidToken) as e:
+        logger.warning("Token refresh failed: %s", e)
+        return Response({'detail': str(e)}, status=status.HTTP_401_UNAUTHORIZED)
