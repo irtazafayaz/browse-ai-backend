@@ -5,6 +5,8 @@ Replaces rest_framework_simplejwt.token_blacklist (which needs Django ORM).
 import logging
 from datetime import datetime, timezone
 
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
+
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken as _RefreshToken
@@ -26,7 +28,8 @@ class MongoJWTAuthentication(JWTAuthentication):
         user_id = validated_token.get('user_id')
         if not user_id:
             logger.warning("JWT has no user_id claim")
-            raise InvalidToken('Token contained no recognisable user identification')
+            raise InvalidToken(
+                'Token contained no recognisable user identification')
 
         jti = validated_token.get('jti')
         if jti and token_blacklist_col().find_one({'jti': jti}):
@@ -54,10 +57,12 @@ class RefreshToken(_RefreshToken):
         if not jti:
             raise TokenError('Token has no jti claim')
 
-        expires_at = datetime.fromtimestamp(exp, tz=timezone.utc) if exp else None
+        expires_at = datetime.fromtimestamp(
+            exp, tz=timezone.utc) if exp else None
         token_blacklist_col().update_one(
             {'jti': jti},
-            {'$set': {'jti': jti, 'expires_at': expires_at, 'blacklisted_at': datetime.now(timezone.utc)}},
+            {'$set': {'jti': jti, 'expires_at': expires_at,
+                      'blacklisted_at': datetime.now(timezone.utc)}},
             upsert=True,
         )
 
@@ -74,3 +79,20 @@ class RefreshToken(_RefreshToken):
         token = cls()
         token['user_id'] = user_id
         return token
+
+
+class MongoJWTAuthenticationScheme(OpenApiAuthenticationExtension):
+    """Teach drf-spectacular how to document MongoJWTAuthentication."""
+    target_class = 'accounts.jwt_auth.MongoJWTAuthentication'
+    name = 'BearerAuth'
+
+    def get_security_definition(self, auto_schema):
+        return {
+            'type': 'http',
+            'scheme': 'bearer',
+            'bearerFormat': 'JWT',
+            'description': (
+                'JWT Bearer token. Obtain one from `POST /api/auth/login/` '
+                'or `POST /api/auth/register/`, then enter it as: `Bearer <token>`'
+            ),
+        }

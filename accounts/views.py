@@ -1,3 +1,11 @@
+from .serializers import (
+    RegisterSerializer, UserSerializer,
+    TokenPairSerializer, GoogleAuthSerializer,
+)
+from .jwt_auth import RefreshToken
+from .models import User
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 import logging
 
 from django.conf import settings
@@ -8,31 +16,59 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse, inline_serializer
+from rest_framework import serializers as drf_serializers
 
 logger = logging.getLogger(__name__)
 
-from google.oauth2 import id_token as google_id_token
-from google.auth.transport import requests as google_requests
 
-from .models import User
-from .jwt_auth import RefreshToken
-from .serializers import (
-    RegisterSerializer, UserSerializer,
-    TokenPairSerializer, GoogleAuthSerializer,
+@extend_schema(
+    tags=['Auth'],
+    summary='Register a new user',
+    description='Creates a new user account and returns a JWT token pair.',
+    request=RegisterSerializer,
+    responses={
+        201: OpenApiResponse(
+            response=TokenPairSerializer,
+            description='Account created. Returns access/refresh tokens and user profile.',
+            examples=[
+                OpenApiExample(
+                    'Success',
+                    value={
+                        'access': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        'user': {
+                            'id': '64f1a2b3c4d5e6f7a8b9c0d1',
+                            'email': 'jane@example.com',
+                            'first_name': 'Jane',
+                            'last_name': 'Doe',
+                            'avatar_url': '',
+                        },
+                    },
+                )
+            ],
+        ),
+        400: OpenApiResponse(description='Validation error (e.g. email taken, passwords mismatch)'),
+    },
+    examples=[
+        OpenApiExample(
+            'Register request',
+            value={
+                'email': 'jane@example.com',
+                'first_name': 'Jane',
+                'last_name': 'Doe',
+                'password': 'StrongPass123!',
+                'password2': 'StrongPass123!',
+            },
+            request_only=True,
+        )
+    ],
 )
-
-
-# ── Register ──────────────────────────────────────────────────────────
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([ScopedRateThrottle])
 def register(request):
     request.throttle_scope = 'auth'
-    """
-    POST /api/auth/register/
-    Body: { email, first_name, last_name, password, password2 }
-    Returns: { access, refresh, user }
-    """
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
         logger.debug("Register validation failed: %s", serializer.errors)
@@ -40,7 +76,8 @@ def register(request):
 
     data = serializer.validated_data
     if User.get_by_email(data['email']):
-        logger.info("Register rejected — email already exists: %s", data['email'])
+        logger.info("Register rejected — email already exists: %s",
+                    data['email'])
         return Response({'email': 'A user with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
     user = User.create(
@@ -53,17 +90,54 @@ def register(request):
     return Response(TokenPairSerializer.for_user(user), status=status.HTTP_201_CREATED)
 
 
-# ── Login ─────────────────────────────────────────────────────────────
+@extend_schema(
+    tags=['Auth'],
+    summary='Login',
+    description='Authenticate with email and password. Returns a JWT token pair.',
+    request=inline_serializer(
+        name='LoginRequest',
+        fields={
+            'email': drf_serializers.EmailField(),
+            'password': drf_serializers.CharField(),
+        },
+    ),
+    responses={
+        200: OpenApiResponse(
+            response=TokenPairSerializer,
+            description='Login successful.',
+            examples=[
+                OpenApiExample(
+                    'Success',
+                    value={
+                        'access': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        'user': {
+                            'id': '64f1a2b3c4d5e6f7a8b9c0d1',
+                            'email': 'jane@example.com',
+                            'first_name': 'Jane',
+                            'last_name': 'Doe',
+                            'avatar_url': '',
+                        },
+                    },
+                )
+            ],
+        ),
+        400: OpenApiResponse(description='Missing email or password.'),
+        401: OpenApiResponse(description='Invalid credentials.'),
+    },
+    examples=[
+        OpenApiExample(
+            'Login request',
+            value={'email': 'jane@example.com', 'password': 'StrongPass123!'},
+            request_only=True,
+        )
+    ],
+)
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @throttle_classes([ScopedRateThrottle])
 def login(request):
     request.throttle_scope = 'auth'
-    """
-    POST /api/auth/login/
-    Body: { email, password }
-    Returns: { access, refresh, user }
-    """
     email = request.data.get('email', '').strip().lower()
     password = request.data.get('password', '')
 
@@ -85,15 +159,33 @@ def login(request):
     return Response(TokenPairSerializer.for_user(user))
 
 
-# ── Logout (blacklist refresh token) ──────────────────────────────────
+@extend_schema(
+    tags=['Auth'],
+    summary='Logout',
+    description='Blacklists the provided refresh token so it can no longer be used.',
+    request=inline_serializer(
+        name='LogoutRequest',
+        fields={'refresh': drf_serializers.CharField()},
+    ),
+    responses={
+        200: OpenApiResponse(
+            description='Logged out successfully.',
+            examples=[OpenApiExample(
+                'Success', value={'detail': 'Logged out successfully.'})],
+        ),
+        400: OpenApiResponse(description='Missing or invalid refresh token.'),
+    },
+    examples=[
+        OpenApiExample(
+            'Logout request',
+            value={'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'},
+            request_only=True,
+        )
+    ],
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def logout(request):
-    """
-    POST /api/auth/logout/
-    Body: { refresh }
-    Blacklists the refresh token in MongoDB so it can't be reused.
-    """
     refresh_token = request.data.get('refresh')
     if not refresh_token:
         return Response({'detail': 'Refresh token required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -109,14 +201,45 @@ def logout(request):
     return Response({'detail': 'Logged out successfully.'})
 
 
-# ── Me (current user profile) ─────────────────────────────────────────
+@extend_schema(
+    tags=['Auth'],
+    summary='Get or update current user',
+    description=(
+        '**GET** — Returns the authenticated user\'s profile.\n\n'
+        '**PATCH** — Updates `first_name` and/or `last_name`. All fields are optional.'
+    ),
+    request=UserSerializer,
+    responses={
+        200: OpenApiResponse(
+            response=UserSerializer,
+            description='User profile.',
+            examples=[
+                OpenApiExample(
+                    'User profile',
+                    value={
+                        'id': '64f1a2b3c4d5e6f7a8b9c0d1',
+                        'email': 'jane@example.com',
+                        'first_name': 'Jane',
+                        'last_name': 'Doe',
+                        'avatar_url': 'https://lh3.googleusercontent.com/a/...',
+                    },
+                )
+            ],
+        ),
+        400: OpenApiResponse(description='Validation error.'),
+        401: OpenApiResponse(description='Authentication required.'),
+    },
+    examples=[
+        OpenApiExample(
+            'Update name',
+            value={'first_name': 'Janet', 'last_name': 'Smith'},
+            request_only=True,
+        )
+    ],
+)
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def me(request):
-    """
-    GET  /api/auth/me/ — return current user
-    PATCH /api/auth/me/ — update first_name / last_name
-    """
     if request.method == 'GET':
         return Response(UserSerializer(request.user).data)
 
@@ -127,15 +250,32 @@ def me(request):
     return Response(UserSerializer(request.user).data)
 
 
-# ── Google OAuth ──────────────────────────────────────────────────────
+@extend_schema(
+    tags=['Auth'],
+    summary='Google OAuth sign-in',
+    description=(
+        'Authenticate using a Google `id_token` obtained from the Google Sign-In SDK.\n\n'
+        'If the email does not exist, a new account is created (HTTP 201).\n'
+        'If the email already exists, the existing account is returned (HTTP 200).'
+    ),
+    request=GoogleAuthSerializer,
+    responses={
+        200: OpenApiResponse(response=TokenPairSerializer, description='Existing user authenticated.'),
+        201: OpenApiResponse(response=TokenPairSerializer, description='New user created via Google.'),
+        400: OpenApiResponse(description='Invalid or missing Google id_token.'),
+        503: OpenApiResponse(description='Google OAuth not configured on this server.'),
+    },
+    examples=[
+        OpenApiExample(
+            'Google auth request',
+            value={'id_token': 'eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9...'},
+            request_only=True,
+        )
+    ],
+)
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def google_auth(request):
-    """
-    POST /api/auth/google/
-    Body: { id_token: "<Google id_token from frontend>" }
-    Returns: { access, refresh, user }
-    """
     serializer = GoogleAuthSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -195,15 +335,51 @@ def google_auth(request):
     )
 
 
-# ── Token refresh ─────────────────────────────────────────────────────
+@extend_schema(
+    tags=['Auth'],
+    summary='Refresh access token',
+    description=(
+        'Exchange a valid refresh token for a new access + refresh token pair.\n\n'
+        'The old refresh token is **blacklisted** immediately (token rotation).'
+    ),
+    request=inline_serializer(
+        name='TokenRefreshRequest',
+        fields={'refresh': drf_serializers.CharField()},
+    ),
+    responses={
+        200: OpenApiResponse(
+            response=inline_serializer(
+                name='TokenRefreshResponse',
+                fields={
+                    'access': drf_serializers.CharField(),
+                    'refresh': drf_serializers.CharField(),
+                },
+            ),
+            description='New token pair.',
+            examples=[
+                OpenApiExample(
+                    'Success',
+                    value={
+                        'access': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                        'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                    },
+                )
+            ],
+        ),
+        400: OpenApiResponse(description='Refresh token missing.'),
+        401: OpenApiResponse(description='Token is invalid or expired.'),
+    },
+    examples=[
+        OpenApiExample(
+            'Refresh request',
+            value={'refresh': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'},
+            request_only=True,
+        )
+    ],
+)
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def token_refresh(request):
-    """
-    POST /api/auth/token/refresh/
-    Body: { refresh }
-    Returns: { access, refresh } using our MongoDB-backed RefreshToken.
-    """
     raw = request.data.get('refresh')
     if not raw:
         return Response({'detail': 'Refresh token required.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -211,7 +387,6 @@ def token_refresh(request):
     try:
         token = RefreshToken(raw)
         access = str(token.access_token)
-        # Blacklist the old token and issue a new one (rotation)
         token.blacklist()
         new_refresh = RefreshToken.for_user_id(str(token['user_id']))
         logger.debug("Token refreshed for user_id: %s", token['user_id'])

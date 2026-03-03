@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python manage.py:*)",
+      "Bash(echo:*)",
+      "Bash(venv/bin/pip install:*)",
+      "Bash(venv/bin/python manage.py check:*)"
+    ]
+  }
+}

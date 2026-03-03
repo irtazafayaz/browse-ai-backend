@@ -7,7 +7,8 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-insecure-key-change-in-production')
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY', 'dev-insecure-key-change-in-production')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = ['*']
@@ -25,6 +26,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'drf_spectacular',
     # Local
     'accounts',
     'products',
@@ -82,6 +84,56 @@ REST_FRAMEWORK = {
         'anon': '100/day',
         'user': '1000/day',
         'auth': '10/min',
+    },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# ── OpenAPI / Swagger ─────────────────────────────────────────────────
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Browse AI API',
+    'DESCRIPTION': (
+        'REST API for Browse AI — an AI-powered product discovery platform.\n\n'
+        '## Authentication\n'
+        'Most endpoints are public. Endpoints marked **🔒 Requires Auth** need a Bearer JWT.\n\n'
+        '1. Call `POST /api/auth/register/` or `POST /api/auth/login/` to obtain tokens.\n'
+        '2. Click **Authorize** (top right) and enter: `Bearer <access_token>`\n'
+        '3. Access tokens expire in **15 minutes**. Use `POST /api/auth/token/refresh/` to rotate.\n\n'
+        '## Rate Limits\n'
+        '- Anonymous: 100 req/day\n'
+        '- Authenticated: 1000 req/day\n'
+        '- Auth endpoints (register/login): 10 req/min'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SECURITY': [{'BearerAuth': []}],
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayRequestDuration': True,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+    },
+    'TAGS': [
+        {'name': 'Auth', 'description': 'Registration, login, logout, and token management'},
+        {'name': 'Products', 'description': 'Browse, search, and manage products'},
+        {'name': 'Bookmarks', 'description': 'Save and retrieve bookmarked products'},
+        {'name': 'Collections',
+            'description': 'Curated editorial collections and search prompts'},
+    ],
+    'SERVERS': [
+        {'url': 'http://localhost:8000', 'description': 'Local development'},
+    ],
+    'SECURITY_DEFINITIONS': {
+        'BearerAuth': {
+            'type': 'http',
+            'scheme': 'bearer',
+            'bearerFormat': 'JWT',
+            'description': (
+                'Enter your access token in the format: `Bearer <token>`\n\n'
+                'Obtain a token from `POST /api/auth/login/` or `POST /api/auth/register/`.'
+            ),
+        }
     },
 }
 
