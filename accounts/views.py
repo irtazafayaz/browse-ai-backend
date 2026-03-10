@@ -184,7 +184,7 @@ def login(request):
     ],
 )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])   # AllowAny so logout works even with an expired access token
 def logout(request):
     refresh_token = request.data.get('refresh')
     if not refresh_token:
@@ -195,7 +195,9 @@ def logout(request):
         token.blacklist()
     except TokenError as e:
         logger.warning("Logout failed — invalid token: %s", e)
-        return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # Return 200 anyway — token is either already blacklisted or expired,
+        # so the client-side session is effectively terminated regardless.
+        return Response({'detail': 'Logged out successfully.'})
 
     logger.info("User logged out (token blacklisted)")
     return Response({'detail': 'Logged out successfully.'})
@@ -254,33 +256,46 @@ def me(request):
     tags=['Auth'],
     summary='Google OAuth sign-in',
     description=(
-        'Authenticate using a Google `id_token` obtained from the Google Sign-In SDK.\n\n'
-        'If the email does not exist, a new account is created (HTTP 201).\n'
-        'If the email already exists, the existing account is returned (HTTP 200).'
+        'Authenticate using a Google OAuth token.\n\n'
+        'Accepts **either**:\n'
+        '- `access_token` — from `@react-oauth/google` implicit flow (recommended for web)\n'
+        '- `id_token` — from Google Sign-In SDK credential flow\n\n'
+        'If the email does not exist a new account is created (HTTP 201). '
+        'If it already exists the existing account is returned (HTTP 200).'
     ),
     request=GoogleAuthSerializer,
     responses={
         200: OpenApiResponse(response=TokenPairSerializer, description='Existing user authenticated.'),
         201: OpenApiResponse(response=TokenPairSerializer, description='New user created via Google.'),
-        400: OpenApiResponse(description='Invalid or missing Google id_token.'),
+        400: OpenApiResponse(description='Invalid or missing Google token.'),
         503: OpenApiResponse(description='Google OAuth not configured on this server.'),
     },
     examples=[
         OpenApiExample(
-            'Google auth request',
+            'With access_token (web)',
+            value={'access_token': 'ya29.a0AfH6SMB...'},
+            request_only=True,
+        ),
+        OpenApiExample(
+            'With id_token (SDK)',
             value={'id_token': 'eyJhbGciOiJSUzI1NiIsImtpZCI6Ii4uLiJ9...'},
             request_only=True,
-        )
+        ),
     ],
 )
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([ScopedRateThrottle])
 def google_auth(request):
+    request.throttle_scope = 'auth'
+    import requests as http_requests  # noqa: PLC0415
+
     serializer = GoogleAuthSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    raw_token = serializer.validated_data['id_token']
+    access_token = serializer.validated_data.get('access_token', '').strip()
+    id_token_raw = serializer.validated_data.get('id_token', '').strip()
     client_id = settings.GOOGLE_CLIENT_ID
 
     if not client_id:
@@ -289,16 +304,38 @@ def google_auth(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    try:
-        idinfo = google_id_token.verify_oauth2_token(
-            raw_token,
-            google_requests.Request(),
-            client_id,
-        )
-    except ValueError as e:
-        return Response({'detail': f'Invalid Google token: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+    # ── Branch A: access_token → Google userinfo endpoint ───────────────
+    if access_token:
+        try:
+            resp = http_requests.get(
+                'https://www.googleapis.com/oauth2/v3/userinfo',
+                headers={'Authorization': f'Bearer {access_token}'},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return Response(
+                    {'detail': f'Google userinfo error: {resp.text}'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            idinfo = resp.json()
+        except Exception as e:
+            logger.warning("Google userinfo request failed: %s", e)
+            return Response({'detail': 'Failed to verify Google token.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    google_id = idinfo['sub']
+    # ── Branch B: id_token → verify with google-auth library ────────────
+    elif id_token_raw:
+        try:
+            idinfo = google_id_token.verify_oauth2_token(
+                id_token_raw,
+                google_requests.Request(),
+                client_id,
+            )
+        except ValueError as e:
+            return Response({'detail': f'Invalid Google token: {e}'}, status=status.HTTP_400_BAD_REQUEST)
+    else:
+        return Response({'detail': 'access_token or id_token is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    google_id = idinfo.get('sub', '')
     email = idinfo.get('email', '')
     first_name = idinfo.get('given_name', '')
     last_name = idinfo.get('family_name', '')
@@ -319,15 +356,22 @@ def google_auth(request):
     )
 
     if not created:
-        updated = False
-        if not user.google_id:
+        update_fields = []
+        if google_id and not user.google_id:
             user.google_id = google_id
-            updated = True
+            update_fields.append('google_id')
         if avatar_url and user.avatar_url != avatar_url:
             user.avatar_url = avatar_url
-            updated = True
-        if updated:
-            user.save(update_fields=['google_id', 'avatar_url'])
+            update_fields.append('avatar_url')
+        # Keep display name in sync with Google account on every login
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+            update_fields.append('first_name')
+        if last_name and user.last_name != last_name:
+            user.last_name = last_name
+            update_fields.append('last_name')
+        if update_fields:
+            user.save(update_fields=update_fields)
 
     return Response(
         TokenPairSerializer.for_user(user),

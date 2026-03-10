@@ -2,7 +2,8 @@ import re
 
 from bson import ObjectId
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from drf_spectacular.utils import (
@@ -28,6 +29,14 @@ _PRODUCT_EXAMPLE = {
     'isBookmarked': False,
 }
 
+_PAGINATED_EXAMPLE = {
+    'products': [_PRODUCT_EXAMPLE],
+    'total': 150,
+    'page': 1,
+    'page_size': 24,
+    'has_next': True,
+}
+
 
 def _get_bookmarked_ids(user) -> set:
     if user and user.is_authenticated:
@@ -35,64 +44,164 @@ def _get_bookmarked_ids(user) -> set:
     return set()
 
 
-# ── List all products ─────────────────────────────────────────────────
+def _paginated_response(col, mongo_filter, page, page_size, bookmarked_ids):
+    """Run a paginated MongoDB query and return a standard response dict."""
+    total = col.count_documents(mongo_filter)
+    skip = (page - 1) * page_size
+    docs = list(col.find(mongo_filter).skip(skip).limit(page_size))
+    products = [doc_to_product(d, bookmarked_ids) for d in docs]
+    return {
+        'products': ProductSerializer(products, many=True).data,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'has_next': (skip + len(docs)) < total,
+    }
+
+
+# ── List / search products ─────────────────────────────────────────────
 @extend_schema(
     tags=['Products'],
     summary='List products',
     description=(
-        'Returns all products. Optionally filter by keyword using `?q=`.\n\n'
-        'The `q` parameter performs a simple regex match against product tags — '
-        'no AI is involved. For AI-powered search use `POST /api/products/search/`.'
+        'Returns a paginated list of products. Supports keyword search (`?q=`) '
+        'and filters for brand, price range, and tags.\n\n'
+        '`q` performs a regex match across product name, brand, and tags. '
+        'For AI-powered search use `POST /api/products/search/`.'
     ),
     parameters=[
-        OpenApiParameter(
-            name='q',
-            type=str,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            description='Keyword filter. Matches against product tags (case-insensitive).',
-            examples=[
-                OpenApiExample('Jeans', value='jeans'),
-                OpenApiExample('Blue slim', value='blue slim'),
-            ],
-        )
+        OpenApiParameter('q', str, OpenApiParameter.QUERY, required=False,
+                         description='Keyword search across name, brand, and tags.'),
+        OpenApiParameter('page', int, OpenApiParameter.QUERY, required=False,
+                         description='Page number (default: 1).'),
+        OpenApiParameter('page_size', int, OpenApiParameter.QUERY, required=False,
+                         description='Results per page (default: 24, max: 100).'),
+        OpenApiParameter('brand', str, OpenApiParameter.QUERY, required=False,
+                         description='Filter by brand name (exact, case-insensitive).'),
+        OpenApiParameter('min_price', float, OpenApiParameter.QUERY, required=False,
+                         description='Minimum price filter.'),
+        OpenApiParameter('max_price', float, OpenApiParameter.QUERY, required=False,
+                         description='Maximum price filter.'),
+        OpenApiParameter('tags', str, OpenApiParameter.QUERY, required=False,
+                         description='Comma-separated list of tags to filter by (e.g. `slim,blue`).'),
     ],
     responses={
         200: OpenApiResponse(
-            response=ProductSerializer(many=True),
-            description='List of products.',
-            examples=[
-                OpenApiExample('Product list', value=[_PRODUCT_EXAMPLE])
-            ],
+            description='Paginated product list.',
+            examples=[OpenApiExample('Paginated products', value=_PAGINATED_EXAMPLE)],
         )
     },
 )
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def product_list(request):
+    # ── Parse params ──
     q = request.query_params.get('q', '').strip()
-    col = products_col()
+    brand = request.query_params.get('brand', '').strip()
+    tags_param = request.query_params.get('tags', '').strip()
+    min_price_str = request.query_params.get('min_price', '').strip()
+    max_price_str = request.query_params.get('max_price', '').strip()
 
+    try:
+        page = max(1, int(request.query_params.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+
+    try:
+        page_size = min(100, max(1, int(request.query_params.get('page_size', 24))))
+    except (ValueError, TypeError):
+        page_size = 24
+
+    # ── Build MongoDB filter ──
+    mongo_filter = {}
+
+    # Full-text search across name, brand, tags
     if q:
         words = [w for w in re.split(r'\s+', q.lower()) if w]
-        mongo_filter = {
-            'tags': {
-                '$elemMatch': {
-                    '$regex': '|'.join(re.escape(w) for w in words),
-                    '$options': 'i',
-                }
-            }
-        }
-        docs = list(col.find(mongo_filter))
-    else:
-        docs = list(col.find())
+        regex_pattern = '|'.join(re.escape(w) for w in words)
+        mongo_filter['$or'] = [
+            {'tags': {'$elemMatch': {'$regex': regex_pattern, '$options': 'i'}}},
+            {'name': {'$regex': regex_pattern, '$options': 'i'}},
+            {'brand': {'$regex': regex_pattern, '$options': 'i'}},
+        ]
 
+    # Brand filter (exact, case-insensitive)
+    if brand:
+        mongo_filter['brand'] = {'$regex': f'^{re.escape(brand)}$', '$options': 'i'}
+
+    # Tags filter (comma-separated, case-insensitive exact match)
+    if tags_param:
+        tag_list = [t.strip().lower() for t in tags_param.split(',') if t.strip()]
+        if tag_list:
+            mongo_filter['tags'] = {'$in': tag_list}
+
+    # Price range filter
+    price_filter = {}
+    if min_price_str:
+        try:
+            price_filter['$gte'] = float(min_price_str)
+        except ValueError:
+            pass
+    if max_price_str:
+        try:
+            price_filter['$lte'] = float(max_price_str)
+        except ValueError:
+            pass
+    if price_filter:
+        mongo_filter['price'] = price_filter
+
+    col = products_col()
     bookmarked_ids = _get_bookmarked_ids(request.user)
-    products = [doc_to_product(d, bookmarked_ids) for d in docs]
-    return Response(ProductSerializer(products, many=True).data)
+    return Response(_paginated_response(col, mongo_filter, page, page_size, bookmarked_ids))
 
 
-# ── Single product ────────────────────────────────────────────────────
+# ── Image search (stub) ────────────────────────────────────────────────
+@extend_schema(
+    tags=['Products'],
+    summary='Image-based product search (stub)',
+    description=(
+        'Upload a product image to find visually similar products.\n\n'
+        '**Note:** This endpoint is currently a stub. It returns a paginated list of '
+        'all products from MongoDB. The AI vision service integration will replace this '
+        'logic once available. The request/response shape will remain the same.\n\n'
+        'Send as `multipart/form-data` with an `image` file field.'
+    ),
+    request=inline_serializer(
+        name='ImageSearchRequest',
+        fields={
+            'image': drf_serializers.ImageField(),
+            'page': drf_serializers.IntegerField(required=False, default=1),
+        },
+    ),
+    responses={
+        200: OpenApiResponse(
+            description='Paginated products (stub: returns all products).',
+            examples=[OpenApiExample('Image search result', value=_PAGINATED_EXAMPLE)],
+        )
+    },
+)
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@parser_classes([MultiPartParser, FormParser])
+def image_search(request):
+    """
+    Stub: returns all products paginated.
+    TODO: Replace with AI vision service call once available.
+    The service will receive the uploaded image bytes and return semantically
+    similar product IDs which are then fetched from MongoDB.
+    """
+    try:
+        page = max(1, int(request.data.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+
+    page_size = 24
+    col = products_col()
+    bookmarked_ids = _get_bookmarked_ids(request.user)
+    return Response(_paginated_response(col, {}, page, page_size, bookmarked_ids))
+
+
+# ── Single product ─────────────────────────────────────────────────────
 @extend_schema(
     tags=['Products'],
     operation_id='products_detail',
@@ -131,11 +240,10 @@ def product_detail(request, product_id):
     tags=['Products'],
     summary='AI-powered product search',
     description=(
-        'Search products using natural language. Claude AI extracts filter tags '
-        'from your query and returns matching products with a human-readable display text '
-        'and suggested follow-up filters.\n\n'
-        'Optionally pass conversation `history` (array of `{role, content}` objects) '
-        'to make the search context-aware across turns.'
+        'Search products using natural language via the BrowseBy AI API. '
+        'Returns matching products with a human-readable display text, '
+        'suggested follow-up filters, and pagination metadata.\n\n'
+        'Pass `page` (default: 1) to paginate through results.'
     ),
     request=SearchRequestSerializer,
     responses={
@@ -149,6 +257,10 @@ def product_detail(request, product_id):
                         'products': [_PRODUCT_EXAMPLE],
                         'displayText': 'Here are some slim-fit blue jeans under $100.',
                         'suggestedFilters': ['skinny', 'stretch', 'dark wash'],
+                        'total': 48,
+                        'page': 1,
+                        'page_size': 24,
+                        'has_next': True,
                     },
                 )
             ],
@@ -158,18 +270,7 @@ def product_detail(request, product_id):
     examples=[
         OpenApiExample(
             'Simple search',
-            value={'query': 'slim fit blue jeans under 100 dollars', 'history': []},
-            request_only=True,
-        ),
-        OpenApiExample(
-            'Search with history',
-            value={
-                'query': 'show me something darker',
-                'history': [
-                    {'role': 'user', 'content': 'slim fit blue jeans'},
-                    {'role': 'assistant', 'content': 'Here are some slim-fit blue jeans.'},
-                ],
-            },
+            value={'query': 'slim fit blue jeans under 100 dollars', 'page': 1},
             request_only=True,
         ),
     ],
@@ -182,14 +283,18 @@ def product_search(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     query = serializer.validated_data['query']
-    history = serializer.validated_data['history']
+    page = serializer.validated_data['page']
     user_id = request.user.id if request.user.is_authenticated else None
 
-    result = search_products(query, history, user_id)
+    result = search_products(query, page, user_id)
     return Response({
         'products': ProductSerializer(result['products'], many=True).data,
         'displayText': result['displayText'],
         'suggestedFilters': result['suggestedFilters'],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'has_next': result['has_next'],
     })
 
 
@@ -327,7 +432,6 @@ def edits_list(request):
                     value=[
                         'Show me slim fit jeans under $100',
                         'Find dark wash straight leg denim',
-                        'What are the most popular jeans right now?',
                     ],
                 )
             ],

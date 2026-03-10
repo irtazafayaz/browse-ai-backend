@@ -11,7 +11,7 @@ EDITS = [
     {'label': 'Wide Leg', 'imageUrl': 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=600&h=750&fit=crop', 'tag': 'Trending'},
     {'label': 'Maroon & Burgundy', 'imageUrl': 'https://images.unsplash.com/photo-1604176354204-9268737828e4?w=600&h=750&fit=crop', 'tag': 'Color Story'},
     {'label': 'Cargo Everything', 'imageUrl': 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=600&h=750&fit=crop', 'tag': 'Street'},
-    {'label': 'Straight Leg', 'imageUrl': 'https://images.unsplash.com/photo-1594938298603-c8148c4b4d05?w=600&h=750&fit=crop', 'tag': 'Classic'},
+    {'label': 'Straight Leg', 'imageUrl': 'https://images.unsplash.com/photo-1541840031508-326003b3b8c0?w=600&h=750&fit=crop', 'tag': 'Classic'},
     {'label': 'Relaxed Fit', 'imageUrl': 'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=600&h=750&fit=crop', 'tag': 'Casual'},
     {'label': 'High Rise', 'imageUrl': 'https://images.unsplash.com/photo-1585487000160-6ebcfceb0d03?w=600&h=750&fit=crop', 'tag': 'Editorial'},
 ]

@@ -15,14 +15,14 @@ class ProductSerializer(serializers.Serializer):
 
 class SearchRequestSerializer(serializers.Serializer):
     query = serializers.CharField(max_length=500)
-    history = serializers.ListField(
-        child=serializers.DictField(),
-        required=False,
-        default=list,
-    )
+    page = serializers.IntegerField(required=False, default=1, min_value=1)
 
 
 class SearchResponseSerializer(serializers.Serializer):
     products = ProductSerializer(many=True)
     displayText = serializers.CharField()
     suggestedFilters = serializers.ListField(child=serializers.CharField())
+    total = serializers.IntegerField()
+    page = serializers.IntegerField()
+    page_size = serializers.IntegerField()
+    has_next = serializers.BooleanField()

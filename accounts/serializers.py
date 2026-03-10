@@ -55,4 +55,12 @@ class TokenPairSerializer(serializers.Serializer):
 
 
 class GoogleAuthSerializer(serializers.Serializer):
-    id_token = serializers.CharField()
+    # Accepts either an OAuth2 access_token (from @react-oauth/google implicit flow)
+    # or a legacy id_token. The view checks which one is present.
+    access_token = serializers.CharField(required=False, allow_blank=True)
+    id_token = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get('access_token') and not attrs.get('id_token'):
+            raise serializers.ValidationError('Either access_token or id_token is required.')
+        return attrs

@@ -59,12 +59,21 @@ class RefreshToken(_RefreshToken):
 
         expires_at = datetime.fromtimestamp(
             exp, tz=timezone.utc) if exp else None
-        token_blacklist_col().update_one(
-            {'jti': jti},
-            {'$set': {'jti': jti, 'expires_at': expires_at,
-                      'blacklisted_at': datetime.now(timezone.utc)}},
-            upsert=True,
-        )
+        try:
+            result = token_blacklist_col().update_one(
+                {'jti': jti},
+                {'$set': {'jti': jti, 'expires_at': expires_at,
+                          'blacklisted_at': datetime.now(timezone.utc)}},
+                upsert=True,
+            )
+            if result.matched_count == 0 and result.upserted_id is None:
+                logger.error("Blacklist write produced no effect for jti=%s", jti)
+                raise TokenError('Failed to blacklist token')
+        except TokenError:
+            raise
+        except Exception as e:
+            logger.error("Blacklist write failed for jti=%s: %s", jti, e)
+            raise TokenError('Failed to blacklist token due to storage error')
 
     @classmethod
     def for_user(cls, user):
@@ -75,7 +84,16 @@ class RefreshToken(_RefreshToken):
 
     @classmethod
     def for_user_id(cls, user_id: str):
-        """Create a refresh token directly from a user_id string (used during rotation)."""
+        """Create a refresh token for a user_id string (used during rotation).
+        Validates the user still exists before issuing the token."""
+        if not user_id:
+            raise TokenError('user_id is required')
+        # Verify user still exists — prevents issuing tokens for deleted accounts
+        user = User.get_by_id(user_id)
+        if user is None:
+            raise TokenError('User no longer exists')
+        if not user.is_active:
+            raise TokenError('User account is inactive')
         token = cls()
         token['user_id'] = user_id
         return token

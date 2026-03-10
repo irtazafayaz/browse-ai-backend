@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "browse-ai-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/mbp/Documents/Practice/browse-ai-web && npm run dev"],
+      "port": 3000
+    }
+  ]
+}

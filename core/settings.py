@@ -35,6 +35,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'core.middleware.RequestResponseLogMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
 
@@ -158,8 +159,8 @@ CORS_ALLOW_CREDENTIALS = True
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 
-# ── Anthropic ─────────────────────────────────────────────────────────
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+# ── BrowseBy AI ───────────────────────────────────────────────────────
+BROWSEBY_API_KEY = os.environ.get('BROWSEBY_API_KEY', '')
 
 # ── Logging ───────────────────────────────────────────────────────────
 LOGGING = {
@@ -183,10 +184,16 @@ LOGGING = {
         'level': 'WARNING',
     },
     'loggers': {
-        # Our app modules — DEBUG in dev, WARNING in prod
+        # ── Our app modules ─────────────────────────────────────────────
         'core': {
             'handlers': ['console'],
             'level': 'DEBUG' if DEBUG else 'WARNING',
+            'propagate': False,
+        },
+        # Incoming request / response interceptor (core/middleware.py)
+        'core.requests': {
+            'handlers': ['console'],
+            'level': 'INFO',   # always log in both dev and prod
             'propagate': False,
         },
         'accounts': {
@@ -199,7 +206,13 @@ LOGGING = {
             'level': 'DEBUG' if DEBUG else 'WARNING',
             'propagate': False,
         },
-        # Silence noisy Django internals in the console
+        # Outgoing BrowseBy AI API interceptor (products/ai_search.py)
+        'products.ai_search': {
+            'handlers': ['console'],
+            'level': 'INFO',   # always log in both dev and prod
+            'propagate': False,
+        },
+        # ── Silence noisy Django internals ──────────────────────────────
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
