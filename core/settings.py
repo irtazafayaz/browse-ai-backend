@@ -163,118 +163,52 @@ GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 BROWSEBY_API_KEY = os.environ.get('BROWSEBY_API_KEY', '')
 
 # ── Logging ───────────────────────────────────────────────────────────
-# Log files are written to BASE_DIR/logs/ and rotated daily (14-day retention).
 _LOG_DIR = BASE_DIR / 'logs'
 _LOG_DIR.mkdir(exist_ok=True)
+
+_APP_HANDLERS = ['console', 'file']
+_APP_LEVEL    = 'DEBUG' if DEBUG else 'INFO'
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-
-    # ── Filters ───────────────────────────────────────────────────────
-    # RequestIDFilter stamps every log record with the active request ID so
-    # every log line — regardless of which module emits it — can be grouped
-    # by request in the terminal or a log-aggregation tool.
     'filters': {
-        'request_id': {
-            '()': 'core.log_filters.RequestIDFilter',
-        },
+        'request_id': {'()': 'core.log_filters.RequestIDFilter'},
     },
-
-    # ── Formatters ────────────────────────────────────────────────────
     'formatters': {
-        # Human-readable, ANSI-coloured — used by the console handler
-        'console': {
-            '()': 'core.formatters.ConsoleFormatter',
-        },
-        # Structured JSON — used by the rotating file handler
-        'json': {
-            '()': 'core.formatters.JSONFormatter',
-        },
+        'console': {'()': 'core.formatters.ConsoleFormatter'},
+        'json':    {'()': 'core.formatters.JSONFormatter'},
     },
-
-    # ── Handlers ──────────────────────────────────────────────────────
     'handlers': {
-        # Terminal output (always on)
         'console': {
-            'class': 'logging.StreamHandler',
+            'class':     'logging.StreamHandler',
             'formatter': 'console',
-            'filters': ['request_id'],
+            'filters':   ['request_id'],
         },
-        # Rotating log file — one file per day, 14 days kept
-        # Format: JSON so logs can be ingested by any aggregator
         'file': {
-            'class': 'logging.handlers.TimedRotatingFileHandler',
-            'filename': str(_LOG_DIR / 'browse-ai.log'),
-            'when': 'midnight',
+            'class':       'logging.handlers.TimedRotatingFileHandler',
+            'filename':    str(_LOG_DIR / 'browse-ai.log'),
+            'when':        'midnight',
             'backupCount': 14,
-            'encoding': 'utf-8',
-            'formatter': 'json',
-            'filters': ['request_id'],
+            'encoding':    'utf-8',
+            'formatter':   'json',
+            'filters':     ['request_id'],
         },
     },
-
-    # ── Root — catch-all for any logger not listed below ──────────────
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': _APP_HANDLERS,
         'level': 'WARNING',
     },
-
-    # ── Named loggers ─────────────────────────────────────────────────
     'loggers': {
-        # ── Application code ────────────────────────────────────────
-        'core': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
-        # Incoming HTTP request / response (core/middleware.py)
-        # INFO in all environments — these lines are the main audit trail
-        'core.requests': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'accounts': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
-        'products': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG' if DEBUG else 'INFO',
-            'propagate': False,
-        },
-        # Outgoing BrowseBy AI API calls (products/ai_search.py)
-        # INFO in all environments — latency of external calls is critical
-        'products.ai_search': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-
-        # ── Django internals — keep quiet ───────────────────────────
-        # django.server duplicates our middleware logs; suppress to WARNING
-        'django': {
-            'handlers': ['console', 'file'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'django.server': {
-            'handlers': ['console', 'file'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'django.request': {
-            'handlers': ['console', 'file'],
-            'level': 'ERROR',
-            'propagate': False,
-        },
-        'pymongo': {
-            'handlers': ['console', 'file'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
+        'core':              {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'core.requests':     {'handlers': _APP_HANDLERS, 'level': 'INFO',      'propagate': False},
+        'accounts':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'products':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'products.ai_search':{'handlers': _APP_HANDLERS, 'level': 'INFO',      'propagate': False},
+        'django':            {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
+        'django.server':     {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
+        'django.request':    {'handlers': _APP_HANDLERS, 'level': 'ERROR',     'propagate': False},
+        'pymongo':           {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
     },
 }
 

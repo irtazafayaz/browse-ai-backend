@@ -37,7 +37,16 @@
       "Bash(lsof -p 19134 -i TCP)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
       "Bash(venv/bin/pip show requests)",
-      "Bash(/Users/mbp/Documents/Practice/browse-ai-web/node_modules/.bin/tsc --noEmit --project /Users/mbp/Documents/Practice/browse-ai-web/tsconfig.json)"
+      "Bash(/Users/mbp/Documents/Practice/browse-ai-web/node_modules/.bin/tsc --noEmit --project /Users/mbp/Documents/Practice/browse-ai-web/tsconfig.json)",
+      "Bash(git add .env.example)",
+      "Bash(git push origin dev --force-with-lease)",
+      "Bash(git checkout -b feature/structured-logging)",
+      "Bash(git add core/log_context.py core/log_filters.py core/formatters.py core/middleware.py core/settings.py products/ai_search.py .gitignore)",
+      "Bash(git push origin feature/structured-logging)",
+      "Bash(git filter-branch -f --msg-filter 'python3 -c \"\":*)",
+      "Bash(git stash)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f --msg-filter 'python3 -c \"\":*)",
+      "Bash(git stash pop)"
     ]
   }
 }
