@@ -33,12 +33,15 @@ def _log_response(resp, **_kwargs):
 
     try:
         data = resp.json()
-        count = len(data.get('results', data.get('products', [])))
+        results = data.get('results', data.get('products', []))
         pagination = data.get('pagination', {})
-        total = pagination.get('total_results', count)
-        body_repr = f'{{results: [{count} items], total: {total}}}'
+        # Compact summary: item count + all pagination fields + sources
+        body_repr = json.dumps({
+            'results': f'[{len(results)} items]',
+            **{k: v for k, v in data.items() if k not in ('results', 'products')},
+        }, ensure_ascii=False)
     except Exception:
-        body_repr = resp.text[:200]
+        body_repr = resp.text[:300]
 
     extra = dict(status=resp.status_code, duration_ms=round(elapsed_ms, 1))
     base = '← AI RESPONSE %s | status=%d | %.1fms | %s'

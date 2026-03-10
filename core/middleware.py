@@ -3,22 +3,31 @@ Request / Response logging middleware.
 
 Responsibilities
 ────────────────
-1. Request ID   — Generates a unique `req-<8hex>` ID per request, or adopts an
-                  upstream `X-Request-ID` header so IDs can be correlated across
-                  services. The ID is stored via contextvars so every log line
-                  emitted during the request automatically carries it.
+1. Request ID      — Generates a unique `req-<8hex>` ID per request, or adopts an
+                     upstream `X-Request-ID` header so IDs can be correlated across
+                     services. The ID is stored via contextvars so every log line
+                     emitted during the request automatically carries it.
 
-2. Logging      — Logs the incoming request (method, path, user, sanitised body)
-                  and the outgoing response (status, duration).
+2. Payload logging — Logs the incoming request body (sanitised) and the outgoing
+                     response body (summarised), so the full round-trip is visible
+                     in one request-ID group.
 
-3. Slow alerts  — Emits WARNING when a response exceeds 2 s and ERROR when it
-                  exceeds 10 s, making latency regressions immediately visible.
+3. Slow alerts     — Emits WARNING when a response exceeds 2 s and ERROR when it
+                     exceeds 10 s, making latency regressions immediately visible.
 
-4. Redaction    — Strips sensitive fields (password, token, secret, …) from
-                  request body logs so credentials never appear in plain text.
+4. Redaction       — Strips sensitive fields (password, token, secret, …) from
+                     request body logs so credentials never appear in plain text.
 
 5. Response header — Echoes `X-Request-ID` back to the client, enabling
                      end-to-end tracing from browser / mobile.
+
+Example output
+──────────────
+→ POST /api/products/search/ | user=anon | body={"query":"pant","page":1}
+← POST /api/products/search/ | status=200 | 1632ms | response={"products":[10 items],"total":41,"page":1,"has_next":true}
+
+→ POST /api/auth/login/ | user=anon | body={"email":"x@x.com","password":"***"}
+← POST /api/auth/login/ | status=400 | 44ms | response={"detail":"Invalid credentials."}
 """
 import json
 import logging
@@ -43,7 +52,7 @@ _VERY_SLOW_MS = 10_000  # ERROR
 
 
 class RequestResponseLogMiddleware:
-    """WSGI middleware: request-ID propagation + structured request/response logging."""
+    """WSGI middleware: request-ID propagation + full request/response logging."""
 
     _SKIP_PREFIXES = ('/static/', '/media/', '/favicon')
 
@@ -60,14 +69,14 @@ class RequestResponseLogMiddleware:
         # ── 1. Assign request ID ─────────────────────────────────────────
         rid = new_request_id(request.headers.get('X-Request-ID'))
 
-        # ── 2. Log incoming request ──────────────────────────────────────
+        # ── 2. Log incoming request + payload ────────────────────────────
         user = _get_user(request)
-        body = _read_body(request)
+        req_body = _read_request_body(request)
 
         logger.info(
             '→ %s %s | user=%s%s',
             request.method, path, user,
-            f' | body={body}' if body else '',
+            f' | body={req_body}' if req_body else '',
             extra=dict(method=request.method, path=path, user=user),
         )
 
@@ -79,21 +88,27 @@ class RequestResponseLogMiddleware:
         # ── 4. Echo request ID back to the client ────────────────────────
         response['X-Request-ID'] = rid
 
-        # ── 5. Log response — level reflects latency ─────────────────────
+        # ── 5. Log response + body ───────────────────────────────────────
+        res_body = _read_response_body(response)
         extra = dict(
             method=request.method, path=path,
             status=response.status_code, duration_ms=round(ms, 1),
         )
-        _log_response(request.method, path, response.status_code, ms, extra)
+        _log_response(request.method, path, response.status_code, ms, res_body, extra)
 
         return response
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _log_response(method: str, path: str, status: int, ms: float, extra: dict) -> None:
-    base = '← %s %s | status=%d | %.1fms'
-    args = (method, path, status, ms)
+def _log_response(
+    method: str, path: str, status: int, ms: float,
+    body: str, extra: dict,
+) -> None:
+    suffix = f' | response={body}' if body else ''
+    base   = '← %s %s | status=%d | %.1fms' + suffix
+    args   = (method, path, status, ms)
+
     if ms > _VERY_SLOW_MS:
         logger.error(base + ' | ⚠ VERY SLOW', *args, extra=extra)
     elif ms > _SLOW_MS:
@@ -102,7 +117,7 @@ def _log_response(method: str, path: str, status: int, ms: float, extra: dict) -
         logger.info(base, *args, extra=extra)
 
 
-def _read_body(request) -> str:
+def _read_request_body(request) -> str:
     """Return a sanitised, truncated JSON body string, or '' for non-JSON."""
     if 'application/json' not in (request.content_type or ''):
         return ''
@@ -116,6 +131,42 @@ def _read_body(request) -> str:
         return json.dumps(data, ensure_ascii=False)[:300]
     except Exception:
         return request.body.decode('utf-8', errors='replace')[:300]
+
+
+def _read_response_body(response) -> str:
+    """
+    Return a compact representation of the response body.
+
+    - Non-JSON responses    → ''  (skip binary, HTML, etc.)
+    - Streaming responses   → ''  (cannot safely read)
+    - Paginated products    → compact summary  {"products":[N items],"total":X,...}
+    - Error / small JSON    → full body, truncated to 400 chars
+    """
+    if getattr(response, 'streaming', False):
+        return ''
+    content_type = response.get('Content-Type', '')
+    if 'application/json' not in content_type:
+        return ''
+    try:
+        raw = response.content.decode('utf-8', errors='replace')
+        data = json.loads(raw)
+
+        if not isinstance(data, dict):
+            return raw[:400]
+
+        # Summarise paginated product responses — the full list is too large
+        if 'products' in data and isinstance(data['products'], list):
+            summary = {
+                'products': f'[{len(data["products"])} items]',
+                **{k: v for k, v in data.items() if k != 'products'},
+            }
+            return json.dumps(summary, ensure_ascii=False)
+
+        # Everything else: show in full, truncated
+        return raw[:400]
+
+    except Exception:
+        return ''
 
 
 def _get_user(request) -> str:
