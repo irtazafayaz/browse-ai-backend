@@ -8,12 +8,12 @@ from django.core.management.base import BaseCommand
 from products.db import get_db
 
 EDITS = [
-    {'label': 'Wide Leg', 'imageUrl': 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=600&h=750&fit=crop', 'tag': 'Trending'},
-    {'label': 'Maroon & Burgundy', 'imageUrl': 'https://images.unsplash.com/photo-1604176354204-9268737828e4?w=600&h=750&fit=crop', 'tag': 'Color Story'},
-    {'label': 'Cargo Everything', 'imageUrl': 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=600&h=750&fit=crop', 'tag': 'Street'},
-    {'label': 'Straight Leg', 'imageUrl': 'https://images.unsplash.com/photo-1541840031508-326003b3b8c0?w=600&h=750&fit=crop', 'tag': 'Classic'},
-    {'label': 'Relaxed Fit', 'imageUrl': 'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=600&h=750&fit=crop', 'tag': 'Casual'},
-    {'label': 'High Rise', 'imageUrl': 'https://images.unsplash.com/photo-1585487000160-6ebcfceb0d03?w=600&h=750&fit=crop', 'tag': 'Editorial'},
+    {'label': 'Wide Leg', 'imageUrl': 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&h=800&fit=crop', 'tag': 'Trending'},
+    {'label': 'Maroon & Burgundy', 'imageUrl': 'https://images.unsplash.com/photo-1529139574466-a303027c1d8b?w=600&h=800&fit=crop', 'tag': 'Color Story'},
+    {'label': 'Cargo Everything', 'imageUrl': 'https://images.unsplash.com/photo-1617137984095-74e4e5e3613f?w=600&h=800&fit=crop', 'tag': 'Street'},
+    {'label': 'Straight Leg', 'imageUrl': 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=600&h=800&fit=crop', 'tag': 'Classic'},
+    {'label': 'Relaxed Fit', 'imageUrl': 'https://images.unsplash.com/photo-1544957992-20514f595d6f?w=600&h=800&fit=crop', 'tag': 'Casual'},
+    {'label': 'High Rise', 'imageUrl': 'https://images.unsplash.com/photo-1566206091558-7f218b696731?w=600&h=800&fit=crop', 'tag': 'Editorial'},
 ]
 
 PROMPTS = [
