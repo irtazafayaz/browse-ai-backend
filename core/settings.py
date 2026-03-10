@@ -163,71 +163,52 @@ GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 BROWSEBY_API_KEY = os.environ.get('BROWSEBY_API_KEY', '')
 
 # ── Logging ───────────────────────────────────────────────────────────
+_LOG_DIR = BASE_DIR / 'logs'
+_LOG_DIR.mkdir(exist_ok=True)
+
+_APP_HANDLERS = ['console', 'file']
+_APP_LEVEL    = 'DEBUG' if DEBUG else 'INFO'
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {'()': 'core.log_filters.RequestIDFilter'},
+    },
     'formatters': {
-        'verbose': {
-            'format': '[{asctime}] {levelname} {name}: {message}',
-            'style': '{',
-            'datefmt': '%Y-%m-%d %H:%M:%S',
-        },
+        'console': {'()': 'core.formatters.ConsoleFormatter'},
+        'json':    {'()': 'core.formatters.JSONFormatter'},
     },
     'handlers': {
         'console': {
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'class':     'logging.StreamHandler',
+            'formatter': 'console',
+            'filters':   ['request_id'],
+        },
+        'file': {
+            'class':       'logging.handlers.TimedRotatingFileHandler',
+            'filename':    str(_LOG_DIR / 'browse-ai.log'),
+            'when':        'midnight',
+            'backupCount': 14,
+            'encoding':    'utf-8',
+            'formatter':   'json',
+            'filters':     ['request_id'],
         },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': _APP_HANDLERS,
         'level': 'WARNING',
     },
     'loggers': {
-        # ── Our app modules ─────────────────────────────────────────────
-        'core': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if DEBUG else 'WARNING',
-            'propagate': False,
-        },
-        # Incoming request / response interceptor (core/middleware.py)
-        'core.requests': {
-            'handlers': ['console'],
-            'level': 'INFO',   # always log in both dev and prod
-            'propagate': False,
-        },
-        'accounts': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if DEBUG else 'WARNING',
-            'propagate': False,
-        },
-        'products': {
-            'handlers': ['console'],
-            'level': 'DEBUG' if DEBUG else 'WARNING',
-            'propagate': False,
-        },
-        # Outgoing BrowseBy AI API interceptor (products/ai_search.py)
-        'products.ai_search': {
-            'handlers': ['console'],
-            'level': 'INFO',   # always log in both dev and prod
-            'propagate': False,
-        },
-        # ── Silence noisy Django internals ──────────────────────────────
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'django.request': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
-        'pymongo': {
-            'handlers': ['console'],
-            'level': 'WARNING',
-            'propagate': False,
-        },
+        'core':              {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'core.requests':     {'handlers': _APP_HANDLERS, 'level': 'INFO',      'propagate': False},
+        'accounts':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'products':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
+        'products.ai_search':{'handlers': _APP_HANDLERS, 'level': 'INFO',      'propagate': False},
+        'django':            {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
+        'django.server':     {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
+        'django.request':    {'handlers': _APP_HANDLERS, 'level': 'ERROR',     'propagate': False},
+        'pymongo':           {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
     },
 }
 

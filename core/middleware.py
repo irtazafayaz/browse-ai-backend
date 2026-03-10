@@ -1,87 +1,97 @@
-"""
-Request / Response logging middleware.
-
-Logs every incoming HTTP request and its response to the 'core.requests' logger:
-
-  REQUEST  POST /api/products/search/ | user=anon | body={"query": "trouser", "page": 1}
-  RESPONSE POST /api/products/search/ | status=200 | 342.1ms
-
-The logger name 'core.requests' is wired up in settings.LOGGING so output appears
-in the console and can be routed to a file / external sink in production.
-"""
 import json
 import logging
 import time
 
+from .log_context import new_request_id
+
 logger = logging.getLogger('core.requests')
+
+_SENSITIVE    = frozenset({'password', 'password2', 'token', 'access_token',
+                           'refresh_token', 'secret', 'client_secret', 'api_key'})
+_SLOW_MS      = 2_000
+_VERY_SLOW_MS = 10_000
 
 
 class RequestResponseLogMiddleware:
-    """WSGI-compatible middleware that logs each request and its response."""
-
-    # Paths to skip (health checks, static files, schema introspection)
-    _SKIP_PREFIXES = ('/static/', '/media/', '/favicon')
+    _SKIP = ('/static/', '/media/', '/favicon')
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        # Skip noisy, uninteresting paths
         path = request.get_full_path()
-        if any(path.startswith(p) for p in self._SKIP_PREFIXES):
+        if any(path.startswith(p) for p in self._SKIP):
             return self.get_response(request)
 
-        start = time.monotonic()
-
-        # ── Log incoming request ────────────────────────────────────────
-        body_repr = self._read_body(request)
-        user_repr = self._get_user(request)
+        rid  = new_request_id(request.headers.get('X-Request-ID'))
+        user = _get_user(request)
+        body = _read_request_body(request)
 
         logger.info(
-            '→ REQUEST  %s %s | user=%s%s',
-            request.method,
-            path,
-            user_repr,
-            f' | body={body_repr}' if body_repr else '',
+            '→ %s %s | user=%s%s',
+            request.method, path, user,
+            f' | body={body}' if body else '',
+            extra=dict(method=request.method, path=path, user=user),
         )
 
-        # ── Process ─────────────────────────────────────────────────────
+        t0       = time.monotonic()
         response = self.get_response(request)
+        ms       = (time.monotonic() - t0) * 1000
 
-        # ── Log outgoing response ────────────────────────────────────────
-        duration_ms = (time.monotonic() - start) * 1000
-        logger.info(
-            '← RESPONSE %s %s | status=%d | %.1fms',
-            request.method,
-            path,
-            response.status_code,
-            duration_ms,
-        )
+        response['X-Request-ID'] = rid
+
+        extra = dict(method=request.method, path=path,
+                     status=response.status_code, duration_ms=round(ms, 1))
+        _log_response(request.method, path, response.status_code, ms,
+                      _read_response_body(response), extra)
 
         return response
 
-    # ── Helpers ─────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _read_body(request) -> str:
-        """Return a concise string representation of the request body."""
-        content_type = request.content_type or ''
-        if 'application/json' not in content_type:
-            return ''
-        try:
-            raw = request.body  # bytes; Django caches this so views still work
-            data = json.loads(raw)
-            # Truncate long strings inside the body to keep logs readable
-            return json.dumps(data, ensure_ascii=False)[:300]
-        except Exception:
-            return request.body.decode('utf-8', errors='replace')[:300]
+def _log_response(method, path, status, ms, body, extra):
+    suffix = f' | response={body}' if body else ''
+    msg    = '← %s %s | status=%d | %.1fms' + suffix
+    args   = (method, path, status, ms)
+    if ms > _VERY_SLOW_MS:
+        logger.error(msg + ' | ⚠ VERY SLOW', *args, extra=extra)
+    elif ms > _SLOW_MS:
+        logger.warning(msg + ' | ⚠ SLOW', *args, extra=extra)
+    else:
+        logger.info(msg, *args, extra=extra)
 
-    @staticmethod
-    def _get_user(request) -> str:
-        """Return a short identifier for the requesting user."""
-        user = getattr(request, 'user', None)
-        if user is None:
-            return 'anon'
-        if hasattr(user, 'is_authenticated') and user.is_authenticated:
-            return str(getattr(user, 'id', user))
-        return 'anon'
+
+def _read_request_body(request) -> str:
+    if 'application/json' not in (request.content_type or ''):
+        return ''
+    try:
+        data = json.loads(request.body)
+        if isinstance(data, dict):
+            data = {k: '***' if k.lower() in _SENSITIVE else v for k, v in data.items()}
+        return json.dumps(data, ensure_ascii=False)[:300]
+    except Exception:
+        return request.body.decode('utf-8', errors='replace')[:300]
+
+
+def _read_response_body(response) -> str:
+    if getattr(response, 'streaming', False):
+        return ''
+    if 'application/json' not in response.get('Content-Type', ''):
+        return ''
+    try:
+        data = json.loads(response.content.decode('utf-8', errors='replace'))
+        if not isinstance(data, dict):
+            return response.content.decode()[:400]
+        # Summarise large product lists to keep logs readable
+        if 'products' in data and isinstance(data['products'], list):
+            return json.dumps({**data, 'products': f'[{len(data["products"])} items]'},
+                              ensure_ascii=False)
+        return json.dumps(data, ensure_ascii=False)[:400]
+    except Exception:
+        return ''
+
+
+def _get_user(request) -> str:
+    user = getattr(request, 'user', None)
+    if user and getattr(user, 'is_authenticated', False):
+        return str(getattr(user, 'id', user))
+    return 'anon'
