@@ -25,26 +25,31 @@ BROWSEBY_API_URL = 'https://browsebyai-production.up.railway.app/api/v1/search/t
 
 def _log_response(resp, **_kwargs):
     """
-    requests response hook — called automatically after every response.
-    Logs status, URL, timing, and a short body summary.
+    requests response hook — fired automatically after every response.
+    Logs status, URL, timing, and a compact body summary.
+    Emits WARNING for slow responses (> 5 s) and ERROR for very slow (> 15 s).
     """
     elapsed_ms = resp.elapsed.total_seconds() * 1000 if resp.elapsed else 0
+
     try:
         data = resp.json()
         count = len(data.get('results', data.get('products', [])))
         pagination = data.get('pagination', {})
         total = pagination.get('total_results', count)
-        body_repr = f'{{results: [{count} items], total: {total}, ...}}'
+        body_repr = f'{{results: [{count} items], total: {total}}}'
     except Exception:
         body_repr = resp.text[:200]
 
-    logger.info(
-        '← AI RESPONSE %s | status=%d | %.1fms | body=%s',
-        resp.url,
-        resp.status_code,
-        elapsed_ms,
-        body_repr,
-    )
+    extra = dict(status=resp.status_code, duration_ms=round(elapsed_ms, 1))
+    base = '← AI RESPONSE %s | status=%d | %.1fms | %s'
+    args = (resp.url, resp.status_code, elapsed_ms, body_repr)
+
+    if elapsed_ms > 15_000:
+        logger.error(base + ' | ⚠ VERY SLOW', *args, extra=extra)
+    elif elapsed_ms > 5_000:
+        logger.warning(base + ' | ⚠ SLOW', *args, extra=extra)
+    else:
+        logger.info(base, *args, extra=extra)
 
 
 def _build_session() -> requests.Session:
@@ -87,9 +92,10 @@ def search_products(query: str, page: int = 1, user_id=None) -> dict:
 
     payload = {'query': query, 'page': page}
     logger.info(
-        '→ AI REQUEST  POST %s | body=%s',
+        '→ AI REQUEST POST %s | body=%s',
         BROWSEBY_API_URL,
         json.dumps(payload),
+        extra=dict(method='POST', path=BROWSEBY_API_URL),
     )
 
     session = _build_session()
