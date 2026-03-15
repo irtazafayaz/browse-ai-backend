@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     # Local
     'accounts',
     'products',
+    'blog',
 ]
 
 MIDDLEWARE = [
@@ -205,6 +206,7 @@ LOGGING = {
         'accounts':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
         'products':          {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
         'products.ai_search':{'handlers': _APP_HANDLERS, 'level': 'INFO',      'propagate': False},
+        'blog':              {'handlers': _APP_HANDLERS, 'level': _APP_LEVEL,  'propagate': False},
         'django':            {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
         'django.server':     {'handlers': _APP_HANDLERS, 'level': 'WARNING',   'propagate': False},
         'django.request':    {'handlers': _APP_HANDLERS, 'level': 'ERROR',     'propagate': False},

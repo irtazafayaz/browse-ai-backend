@@ -65,6 +65,10 @@ def prompts_col():
     return get_db()['prompts']
 
 
+def blog_posts_col():
+    return get_db()['blog_posts']
+
+
 # ── Index bootstrap — called once from AppConfig.ready() ─────────────
 
 def ensure_indexes():
@@ -81,4 +85,10 @@ def ensure_indexes():
     db['bookmarks'].create_index(
         [('user_id', ASCENDING), ('product_id', ASCENDING)], unique=True, background=True
     )
+
+    db['blog_posts'].create_index([('slug', ASCENDING)], unique=True, background=True)
+    db['blog_posts'].create_index(
+        [('published', ASCENDING), ('published_at', ASCENDING)], background=True
+    )
+
     logger.info("MongoDB indexes OK.")
