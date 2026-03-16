@@ -15,13 +15,13 @@ ALLOWED_HOSTS = ['*']
 
 # ── Apps ──────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
-    # Required by simplejwt — auth + contenttypes must both be present.
-    # AUTH_USER_MODEL is intentionally NOT set; Django uses its default
-    # auth.User ORM model only to satisfy internal checks.
-    # Our actual User class in accounts/models.py is a plain Python class
-    # backed by MongoDB — it is NOT registered as a Django ORM model.
+    # Django admin + auth
+    'django.contrib.admin',
     'django.contrib.contenttypes',
     'django.contrib.auth',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
     # Third-party
     'rest_framework',
     'rest_framework_simplejwt',
@@ -36,8 +36,12 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'core.middleware.RequestResponseLogMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -47,21 +51,37 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
-        'OPTIONS': {'context_processors': []},
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
     },
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# ── Database — MongoDB only, no SQLite ───────────────────────────────
-# Django ORM is not used. All data lives in MongoDB Atlas via pymongo.
-DATABASES = {}
+# ── Database ──────────────────────────────────────────────────────────
+# SQLite is used only for Django admin sessions and blog posts (ORM).
+# All other app data (users, products, bookmarks) lives in MongoDB via pymongo.
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb://localhost:27017')
 MONGO_DB_NAME = os.environ.get('MONGO_DB_NAME', 'browse_ai')
 
 # ── Authentication ────────────────────────────────────────────────────
-AUTHENTICATION_BACKENDS = ['accounts.backend.MongoAuthBackend']
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',   # Django admin login
+    'accounts.backend.MongoAuthBackend',            # API JWT auth
+]
 
 # ── Password validation ────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
@@ -145,7 +165,6 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
-    # Blacklisting is handled manually via MongoDB — not via ORM
     'BLACKLIST_AFTER_ROTATION': False,
 }
 

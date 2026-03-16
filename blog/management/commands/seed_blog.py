@@ -1,5 +1,5 @@
 """
-Seed the blog_posts collection with the initial 4 buying-guide articles.
+Seed the blog_posts table with the initial 4 buying-guide articles.
 Safe to run multiple times — skips slugs that already exist.
 
 Usage:
@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from django.core.management.base import BaseCommand
 
 from blog.models import BlogPost
-from core.db import blog_posts_col
 
 POSTS = [
     {
@@ -22,7 +21,7 @@ POSTS = [
         ),
         'read_time': '7 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-1583391733956-6c78276477e2?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-rJirD6eI26I?w=1200&q=80',
         'published_at': datetime(2025, 2, 10, tzinfo=timezone.utc),
         'content': """
 <h2>Why Lawn Suits Dominate Pakistani Fashion</h2>
@@ -77,14 +76,14 @@ POSTS = [
     },
     {
         'slug': 'chiffon-dupatta-sets-guide',
-        'title': 'Chiffon Dupatta Sets Under $80: Where to Shop & What to Look For',
+        'title': 'Chiffon Dupatta Sets Under Rs 20,000: Where to Shop & What to Look For',
         'description': (
             'A practical guide to buying chiffon dupatta sets online — which Pakistani brands '
-            'offer the best quality under $80, and what to check before you buy.'
+            'offer the best quality under Rs 20,000, and what to check before you buy.'
         ),
         'read_time': '6 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-1617627143750-d86bc21e42bb?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-udCX1mvNFos?w=1200&q=80',
         'published_at': datetime(2025, 2, 24, tzinfo=timezone.utc),
         'content': """
 <h2>The Appeal of Chiffon Dupatta Sets</h2>
@@ -99,18 +98,18 @@ POSTS = [
   <li><strong>Border detail:</strong> Scalloped edges, lace borders, or hand-stitched hemlines signal attention to craft.</li>
 </ul>
 
-<h2>Best Brands for Chiffon Dupatta Sets Under $80</h2>
+<h2>Best Brands for Chiffon Dupatta Sets Under Rs 20,000</h2>
 
-<h3>Limelight (Under $30)</h3>
+<h3>Limelight (Under Rs 8,000)</h3>
 <p>Limelight's pret lines frequently include chiffon dupatta three-pieces at remarkable prices. Their summer collections offer printed chiffon dupattas that are ideal for daily wear. Don't expect luxury, but for everyday outfit needs, Limelight punches well above its price point.</p>
 
-<h3>Nishat Linen (Under $50)</h3>
+<h3>Nishat Linen (Under Rs 13,000)</h3>
 <p>Nishat Linen is the sweet spot for quality-to-price ratio. Their N-Basics and seasonal lawn collections regularly feature chiffon dupatta sets with clean, wearable prints. Fabric is consistently soft, and the stitched options mean no tailoring needed.</p>
 
-<h3>Generation ($40–$70)</h3>
+<h3>Generation (Rs 10,000–18,000)</h3>
 <p>Generation takes a more fashion-forward approach. Their chiffon dupattas often feature block prints, abstract patterns, or contemporary motifs rather than traditional florals. A good choice if you want something that feels more modern.</p>
 
-<h3>Sana Safinaz Muzlin ($60–$80)</h3>
+<h3>Sana Safinaz Muzlin (Rs 15,000–20,000)</h3>
 <p>At the top of this price range, Sana Safinaz's Muzlin line offers chiffon dupattas that feel noticeably premium. The print quality, dupatta weight, and finishing details are a level above mass-market options. If you're buying for a special occasion, this is worth stretching to.</p>
 
 <h2>Styling Tips</h2>
@@ -121,19 +120,19 @@ POSTS = [
 </ul>
 
 <h2>Search Smarter</h2>
-<p>Finding the right chiffon dupatta set used to mean visiting five different websites. With Browse AI, you can simply describe what you're looking for — "soft chiffon dupatta set in pastels under $60" — and get results from across Pakistan's top brands instantly.</p>
+<p>Finding the right chiffon dupatta set used to mean visiting five different websites. With Browse AI, you can simply describe what you're looking for — "soft chiffon dupatta set in pastels under Rs 15,000" — and get results from across Pakistan's top brands instantly.</p>
 """,
     },
     {
         'slug': 'pret-wear-pakistan-guide',
         'title': 'Pret Wear in Pakistan: Top Picks & Brands for 2025',
         'description': (
-            'Ready-to-wear pret is transforming how Pakistani women shop. Here\'s our guide to '
-            'the best pret brands, what to buy, and how to find great pieces without hours of browsing.'
+            "Ready-to-wear pret is transforming how Pakistani women shop. Here's our guide to "
+            "the best pret brands, what to buy, and how to find great pieces without hours of browsing."
         ),
         'read_time': '5 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-26Y5SoCTR8o?w=1200&q=80',
         'published_at': datetime(2025, 3, 5, tzinfo=timezone.utc),
         'content': """
 <h2>What Is Pret Wear?</h2>
@@ -181,7 +180,7 @@ POSTS = [
         ),
         'read_time': '8 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-1519657814-e23a47b2ded3?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-IGXoW3TU038?w=1200&q=80',
         'published_at': datetime(2025, 3, 12, tzinfo=timezone.utc),
         'content': """
 <h2>Understanding Pakistani Wedding Events</h2>
@@ -192,7 +191,7 @@ POSTS = [
 <ul>
   <li><strong>What works:</strong> Vibrant colours, printed lawn or cotton three-pieces, casual chiffon dupatta sets, embroidered pret kurtas</li>
   <li><strong>What to avoid:</strong> Heavy bridal colours (red, gold), overly formal chiffon or georgette, excessive jewellery</li>
-  <li><strong>Budget range:</strong> PKR 3,000–8,000 | ~$10–30</li>
+  <li><strong>Budget range:</strong> PKR 3,000–8,000</li>
   <li><strong>Brands to check:</strong> Bonanza Satrangi, Limelight, Alkaram pret</li>
 </ul>
 
@@ -201,7 +200,7 @@ POSTS = [
 <ul>
   <li><strong>What works:</strong> Bright embroidered three-pieces, tissue or organza dupattas, embellished suits with gota work or tilla borders</li>
   <li><strong>What to avoid:</strong> Whites, blacks, and heavy reds (save these for baraat)</li>
-  <li><strong>Budget range:</strong> PKR 8,000–20,000 | ~$30–75</li>
+  <li><strong>Budget range:</strong> PKR 8,000–20,000</li>
   <li><strong>Brands to check:</strong> Sana Safinaz formal, Maria B pret, Nishat formal collection</li>
 </ul>
 
@@ -210,7 +209,7 @@ POSTS = [
 <ul>
   <li><strong>What works:</strong> Embroidered chiffon or net three-pieces, formal anarkali styles, rich colours like burgundy, navy, emerald, and gold</li>
   <li><strong>What to avoid:</strong> Bridal red/white (never upstage the bride), overly casual prints</li>
-  <li><strong>Budget range:</strong> PKR 15,000–40,000 | ~$55–145</li>
+  <li><strong>Budget range:</strong> PKR 15,000–40,000</li>
   <li><strong>Brands to check:</strong> Maria B luxury pret, Sana Safinaz formal, boutique options</li>
 </ul>
 
@@ -218,7 +217,7 @@ POSTS = [
 <p>The valima tends to be more refined than the baraat. Pastels, soft embroidery, and understated elegance work best.</p>
 <ul>
   <li><strong>What works:</strong> Soft chiffon or silk in pastels, subtly embroidered three-pieces, co-ord sets in neutral tones</li>
-  <li><strong>Budget range:</strong> PKR 8,000–20,000 | ~$30–75</li>
+  <li><strong>Budget range:</strong> PKR 8,000–20,000</li>
   <li><strong>Brands to check:</strong> Nishat Linen formal, Generation, Gul Ahmed formal</li>
 </ul>
 
@@ -238,30 +237,23 @@ POSTS = [
 
 
 class Command(BaseCommand):
-    help = 'Seed the blog_posts collection with initial buying-guide articles.'
+    help = 'Seed the blog_posts table with initial buying-guide articles.'
 
     def handle(self, *args, **options):
-        existing_slugs = {
-            doc['slug']
-            for doc in blog_posts_col().find({}, {'slug': 1})
-        }
-
         created = 0
         skipped = 0
 
         for post_data in POSTS:
             slug = post_data['slug']
-            if slug in existing_slugs:
+            if BlogPost.objects.filter(slug=slug).exists():
                 self.stdout.write(f'  skip  {slug}')
                 skipped += 1
                 continue
 
-            BlogPost.create(**post_data)
+            BlogPost.objects.create(**post_data)
             self.stdout.write(self.style.SUCCESS(f'  created  {slug}'))
             created += 1
 
         self.stdout.write(
-            self.style.SUCCESS(
-                f'\nDone — {created} created, {skipped} skipped.'
-            )
+            self.style.SUCCESS(f'\nDone — {created} created, {skipped} skipped.')
         )

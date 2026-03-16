@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 @permission_classes([IsStaffOrReadOnly])
 def post_list(request):
     if request.method == 'GET':
-        posts = BlogPost.list_published()
+        posts = BlogPost.objects.filter(published=True)
         return Response(BlogPostListSerializer(posts, many=True).data)
 
     # POST — staff only
@@ -24,7 +24,7 @@ def post_list(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        post = BlogPost.create(**serializer.validated_data)
+        post = serializer.save()
     except Exception as exc:
         logger.error("Failed to create blog post: %s", exc)
         return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -35,23 +35,21 @@ def post_list(request):
 @api_view(['GET', 'PUT', 'DELETE'])
 @permission_classes([IsStaffOrReadOnly])
 def post_detail(request, slug):
+    try:
+        post = BlogPost.objects.get(slug=slug, published=True)
+    except BlogPost.DoesNotExist:
+        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
     if request.method == 'GET':
-        post = BlogPost.get_by_slug(slug)
-        if not post:
-            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(BlogPostSerializer(post).data)
 
     if request.method == 'PUT':
-        serializer = BlogPostSerializer(data=request.data, partial=True)
+        serializer = BlogPostSerializer(post, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        post = BlogPost.update_by_slug(slug, **serializer.validated_data)
-        if not post:
-            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        return Response(BlogPostSerializer(post).data)
+        serializer.save()
+        return Response(serializer.data)
 
     # DELETE
-    deleted = BlogPost.delete_by_slug(slug)
-    if not deleted:
-        return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+    post.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
