@@ -21,7 +21,7 @@ POSTS = [
         ),
         'read_time': '7 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-rJirD6eI26I?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-EtSixZZfbVk?w=1200&q=80',
         'published_at': datetime(2025, 2, 10, tzinfo=timezone.utc),
         'content': """
 <h2>Why Lawn Suits Dominate Pakistani Fashion</h2>
@@ -83,7 +83,7 @@ POSTS = [
         ),
         'read_time': '6 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-udCX1mvNFos?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-1lmkQg6uf24?w=1200&q=80',
         'published_at': datetime(2025, 2, 24, tzinfo=timezone.utc),
         'content': """
 <h2>The Appeal of Chiffon Dupatta Sets</h2>
@@ -132,7 +132,7 @@ POSTS = [
         ),
         'read_time': '5 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-26Y5SoCTR8o?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-eJLP9Sib5Ws?w=1200&q=80',
         'published_at': datetime(2025, 3, 5, tzinfo=timezone.utc),
         'content': """
 <h2>What Is Pret Wear?</h2>
@@ -180,7 +180,7 @@ POSTS = [
         ),
         'read_time': '8 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-IGXoW3TU038?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-urgOyJqMoCc?w=1200&q=80',
         'published_at': datetime(2025, 3, 12, tzinfo=timezone.utc),
         'content': """
 <h2>Understanding Pakistani Wedding Events</h2>

@@ -88,7 +88,8 @@
       "Bash(lsof -ti :8000 -ti :3000)",
       "Bash(bash -c 'source venv/bin/activate && python manage.py seed_blog')",
       "WebSearch",
-      "Bash(source venv/bin/activate)"
+      "Bash(source venv/bin/activate)",
+      "WebFetch(domain:unsplash.com)"
     ]
   }
 }
