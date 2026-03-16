@@ -21,7 +21,7 @@ POSTS = [
         ),
         'read_time': '7 min read',
         'category': 'Buying Guide',
-        'cover_image': 'https://images.unsplash.com/photo-EtSixZZfbVk?w=1200&q=80',
+        'cover_image': 'https://images.unsplash.com/photo-1733731402740-f0fd91bdd5c0?w=1200&q=80',
         'published_at': datetime(2025, 2, 10, tzinfo=timezone.utc),
         'content': """
 <h2>Why Lawn Suits Dominate Pakistani Fashion</h2>
