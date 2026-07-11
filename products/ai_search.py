@@ -9,6 +9,10 @@ from .db import bookmarks_col
 logger = logging.getLogger('products.ai_search')
 
 AI_SEARCH_URL = getattr(settings, 'AI_SEARCH_URL', 'http://localhost:8001/api/v1/search')
+# The AI service exposes three modes under the same base path.
+_BASE = AI_SEARCH_URL.rstrip('/')
+VISUAL_SEARCH_URL = _BASE + '/visual'   # text -> image (cross-modal)
+IMAGE_SEARCH_URL = _BASE + '/image'     # image -> image (upload)
 PAGE_SIZE = 24
 
 
@@ -60,51 +64,107 @@ def _map_product(item: dict, bookmarked_ids: set) -> dict:
     }
 
 
-def search_products(query: str, page: int = 1, user_id=None, top_k: int = PAGE_SIZE, brand: str = '') -> dict:
-    params = {'q': query, 'top_k': top_k}
-    if brand:
-        params['brand'] = brand
+def _bookmarked_ids(user_id) -> set:
+    if not user_id:
+        return set()
+    return {b['product_id'] for b in bookmarks_col().find({'user_id': str(user_id)})}
 
-    logger.info(
-        '→ AI REQUEST GET %s | params=%s',
-        AI_SEARCH_URL,
-        json.dumps(params),
-        extra=dict(method='GET', path=AI_SEARCH_URL),
-    )
 
-    try:
-        resp = _build_session().get(AI_SEARCH_URL, params=params, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+def _empty_result(display_text: str, page: int, top_k: int) -> dict:
+    return {
+        'products':         [],
+        'displayText':      display_text,
+        'suggestedFilters': [],
+        'total':            0,
+        'page':             page,
+        'page_size':        top_k,
+        'has_next':         False,
+    }
 
-    except requests.RequestException as exc:
-        logger.error('AI API error: %s', exc)
-        return {
-            'products':         [],
-            'displayText':      'Search is temporarily unavailable. Please try again.',
-            'suggestedFilters': [],
-            'total':            0,
-            'page':             page,
-            'page_size':        PAGE_SIZE,
-            'has_next':         False,
-        }
 
-    bookmarked_ids: set = set()
-    if user_id:
-        bookmarked_ids = {
-            b['product_id'] for b in bookmarks_col().find({'user_id': str(user_id)})
-        }
-
-    raw_products = data.get('results', [])
-    products     = [_map_product(item, bookmarked_ids) for item in raw_products]
-    total        = data.get('total', len(products))
-
+def _build_result(data: dict, display_text: str, page: int, top_k: int, user_id) -> dict:
+    """Map an AI-service response ({'results': [...], 'total': N}) into the shape
+    the frontend expects. Shared by all three search modes."""
+    bookmarked_ids = _bookmarked_ids(user_id)
+    products = [_map_product(item, bookmarked_ids) for item in data.get('results', [])]
+    total = data.get('total', len(products))
     return {
         'products':         products,
-        'displayText':      f'Found {total} results for "{query}"',
+        # .replace (not .format) so literal braces in a user query can't crash formatting.
+        'displayText':      display_text.replace('{total}', str(total)),
         'suggestedFilters': [],
         'total':            total,
         'page':             page,
         'page_size':        top_k,
         'has_next':         False,
     }
+
+
+def search_products(query: str, page: int = 1, user_id=None, top_k: int = PAGE_SIZE, brand: str = '') -> dict:
+    """Text search — hybrid semantic + keyword (GET /search)."""
+    params = {'q': query, 'top_k': top_k}
+    if brand:
+        params['brand'] = brand
+
+    logger.info('→ AI REQUEST GET %s | params=%s', AI_SEARCH_URL, json.dumps(params),
+                extra=dict(method='GET', path=AI_SEARCH_URL))
+
+    try:
+        resp = _build_session().get(AI_SEARCH_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        logger.error('AI text-search error: %s', exc)
+        return _empty_result('Search is temporarily unavailable. Please try again.', page, top_k)
+
+    return _build_result(data, f'Found {{total}} results for "{query}"', page, top_k, user_id)
+
+
+def visual_search_products(query: str, page: int = 1, user_id=None, top_k: int = PAGE_SIZE, brand: str = '') -> dict:
+    """Cross-modal text → image search (GET /search/visual)."""
+    params = {'q': query, 'top_k': top_k}
+    if brand:
+        params['brand'] = brand
+
+    logger.info('→ AI REQUEST GET %s | params=%s', VISUAL_SEARCH_URL, json.dumps(params),
+                extra=dict(method='GET', path=VISUAL_SEARCH_URL))
+
+    try:
+        resp = _build_session().get(VISUAL_SEARCH_URL, params=params, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        logger.error('AI visual-search error: %s', exc)
+        return _empty_result('Visual search is temporarily unavailable. Please try again.', page, top_k)
+
+    return _build_result(data, f'Found {{total}} results for "{query}"', page, top_k, user_id)
+
+
+def image_search_products(
+    image_bytes: bytes,
+    filename: str = 'upload.jpg',
+    content_type: str = 'image/jpeg',
+    page: int = 1,
+    user_id=None,
+    top_k: int = PAGE_SIZE,
+    brand: str = '',
+) -> dict:
+    """Image → image search — forward the uploaded photo to POST /search/image."""
+    params = {'top_k': top_k}
+    if brand:
+        params['brand'] = brand
+    files = {'file': (filename, image_bytes, content_type or 'image/jpeg')}
+
+    logger.info('→ AI REQUEST POST %s | file=%s (%d bytes)', IMAGE_SEARCH_URL, filename, len(image_bytes or b''),
+                extra=dict(method='POST', path=IMAGE_SEARCH_URL))
+
+    try:
+        # Longer timeout: server downloads/encodes the image with CLIP.
+        resp = _build_session().post(IMAGE_SEARCH_URL, params=params, files=files, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        logger.error('AI image-search error: %s', exc)
+        return _empty_result('Image search is temporarily unavailable. Please try again.', page, top_k)
+
+    return _build_result(data, 'Found {total} visually similar products', page, top_k, user_id)

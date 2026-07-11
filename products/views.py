@@ -14,7 +14,7 @@ from rest_framework import serializers as drf_serializers
 
 from .db import products_col, bookmarks_col, edits_col, prompts_col
 from .serializers import ProductSerializer, SearchRequestSerializer, SearchResponseSerializer
-from .ai_search import search_products
+from .ai_search import search_products, image_search_products, visual_search_products
 from .utils import doc_to_product
 
 
@@ -155,15 +155,14 @@ def product_list(request):
     return Response(_paginated_response(col, mongo_filter, page, page_size, bookmarked_ids))
 
 
-# ── Image search (stub) ────────────────────────────────────────────────
+# ── Image search (image → image) ───────────────────────────────────────
 @extend_schema(
     tags=['Products'],
-    summary='Image-based product search (stub)',
+    summary='Image-based product search',
     description=(
         'Upload a product image to find visually similar products.\n\n'
-        '**Note:** This endpoint is currently a stub. It returns a paginated list of '
-        'all products from MongoDB. The AI vision service integration will replace this '
-        'logic once available. The request/response shape will remain the same.\n\n'
+        'The uploaded image is forwarded to the AI service (`POST /search/image`), '
+        'which encodes it with CLIP and returns the most visually similar products.\n\n'
         'Send as `multipart/form-data` with an `image` file field.'
     ),
     request=inline_serializer(
@@ -175,30 +174,85 @@ def product_list(request):
     ),
     responses={
         200: OpenApiResponse(
-            description='Paginated products (stub: returns all products).',
+            response=SearchResponseSerializer,
+            description='Visually similar products.',
             examples=[OpenApiExample('Image search result', value=_PAGINATED_EXAMPLE)],
-        )
+        ),
+        400: OpenApiResponse(description='No image file provided.'),
     },
 )
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @parser_classes([MultiPartParser, FormParser])
 def image_search(request):
-    """
-    Stub: returns all products paginated.
-    TODO: Replace with AI vision service call once available.
-    The service will receive the uploaded image bytes and return semantically
-    similar product IDs which are then fetched from MongoDB.
-    """
+    """Forward the uploaded image to the AI vision service and return matches."""
+    image_file = request.FILES.get('image')
+    if image_file is None:
+        return Response(
+            {'detail': 'An image file is required (multipart field: image).'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         page = max(1, int(request.data.get('page', 1)))
     except (ValueError, TypeError):
         page = 1
 
-    page_size = 24
-    col = products_col()
-    bookmarked_ids = _get_bookmarked_ids(request.user)
-    return Response(_paginated_response(col, {}, page, page_size, bookmarked_ids))
+    user_id = request.user.id if request.user.is_authenticated else None
+    result = image_search_products(
+        image_file.read(),
+        filename=getattr(image_file, 'name', 'upload.jpg') or 'upload.jpg',
+        content_type=getattr(image_file, 'content_type', 'image/jpeg') or 'image/jpeg',
+        page=page,
+        user_id=user_id,
+    )
+    return Response({
+        'products': ProductSerializer(result['products'], many=True).data,
+        'displayText': result['displayText'],
+        'suggestedFilters': result['suggestedFilters'],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'has_next': result['has_next'],
+    })
+
+
+# ── Visual search (text → image, cross-modal) ──────────────────────────
+@extend_schema(
+    tags=['Products'],
+    summary='Cross-modal visual search (text → image)',
+    description=(
+        'Search product **images** with a natural-language query. This POST endpoint '
+        'internally calls the AI service (`GET /search/visual`), matching the text against '
+        'product images using CLIP rather than product text/descriptions.\n\nPass `page` (default: 1).'
+    ),
+    request=SearchRequestSerializer,
+    responses={
+        200: OpenApiResponse(response=SearchResponseSerializer, description='Search results.'),
+        400: OpenApiResponse(description='Validation error (e.g. missing query).'),
+    },
+)
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def visual_search(request):
+    serializer = SearchRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    query = serializer.validated_data['query']
+    page = serializer.validated_data['page']
+    user_id = request.user.id if request.user.is_authenticated else None
+
+    result = visual_search_products(query, page, user_id)
+    return Response({
+        'products': ProductSerializer(result['products'], many=True).data,
+        'displayText': result['displayText'],
+        'suggestedFilters': result['suggestedFilters'],
+        'total': result['total'],
+        'page': result['page'],
+        'page_size': result['page_size'],
+        'has_next': result['has_next'],
+    })
 
 
 # ── Single product ─────────────────────────────────────────────────────
