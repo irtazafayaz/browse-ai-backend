@@ -179,8 +179,8 @@ CORS_ALLOW_CREDENTIALS = True
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 
-# ── BrowseBy AI ───────────────────────────────────────────────────────
-BROWSEBY_API_KEY = os.environ.get('BROWSEBY_API_KEY', '')
+# ── AI Search Server ──────────────────────────────────────────────────
+AI_SEARCH_URL = os.environ.get('AI_SEARCH_URL', 'http://localhost:8001/api/v1/search')
 
 # ── Logging ───────────────────────────────────────────────────────────
 _LOG_DIR = BASE_DIR / 'logs'
